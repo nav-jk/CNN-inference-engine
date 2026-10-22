@@ -1,8 +1,7 @@
 #pragma once
 
-#include "../include/mem/filter.h"
-#include "../include/mem/img.h"
-#include "../include/config/params.h"
-#include "../include/mem/output.h"
-#include "../include/mem/default.h"
+#include "config/default.h"
 
+// Placeholder single-channel "valid" convolution so the project builds and the
+// loaded weights can be exercised. Replace with real kernel.
+void conv2d(const float* img, const float* filter, float* out, const layer_config& lc);

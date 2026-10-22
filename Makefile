@@ -1,9 +1,26 @@
-.PHONY : all clean build
+CXX      := g++
+CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -Iinclude -MMD -MP
 
-build : 
-	mkdir build
-	build/main
-	g++ main.c -o main
+SRC    := main.cpp $(wildcard src/*.cpp src/*/*.cpp)
+OBJ    := $(patsubst %.cpp,build/%.o,$(SRC))
+DEP    := $(OBJ:.o=.d)
+TARGET := build/main
 
-clean : 
+.PHONY : all run clean
+
+all : $(TARGET)
+
+$(TARGET) : $(OBJ)
+	$(CXX) $(OBJ) -o $@
+
+build/%.o : %.cpp
+	@mkdir -p $(dir $@)
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+run : $(TARGET)
+	./$(TARGET) weights.bin
+
+clean :
 	rm -rf build
+
+-include $(DEP)
