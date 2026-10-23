@@ -17,8 +17,9 @@ build/%.o : %.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+# Needs lenet.bin, test_image.bin, expected_logits.bin (see tools/)
 run : $(TARGET)
-	./$(TARGET) weights.bin
+	./$(TARGET) lenet.bin test_image.bin expected_logits.bin
 
 clean :
 	rm -rf build

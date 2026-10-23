@@ -1,40 +1,69 @@
+#include <cmath>
 #include <cstdio>
-#include <vector>
 #include <exception>
+#include <stdexcept>
+#include <string>
+#include <vector>
 #include "config/default.h"
+#include "net/infer.h"
 #include "utils/load.h"
-#include "ops/mul.h"
+
+static std::vector<float> read_floats(const std::string& path, size_t count) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) throw std::runtime_error("cannot open " + path);
+    std::vector<float> v(count);
+    const size_t got = std::fread(v.data(), sizeof(float), count, f);
+    const bool extra = std::fgetc(f) != EOF;
+    std::fclose(f);
+    if (got != count || extra)
+        throw std::runtime_error(path + ": expected exactly " + std::to_string(count) + " floats");
+    return v;
+}
 
 int main(int argc, char** argv) {
-    const char* weights_path = (argc > 1) ? argv[1] : "weights.bin";
+    const std::string model_path    = (argc > 1) ? argv[1] : "lenet.bin";
+    const std::string image_path    = (argc > 2) ? argv[2] : "test_image.bin";
+    const std::string expected_path = (argc > 3) ? argv[3] : "";
 
-    layer_config layers[] = { {/*stride*/1, /*fw*/3, /*fh*/3, /*img_w*/5, /*img_h*/5} };
-    config cfg = { 1, layers };
+    // LeNet for 28x28 grayscale input (e.g. MNIST).
+    //                 stride fw fh  img_w img_h in_c out_c type
+    layer_config layers[] = {
+        {1, 5, 5, 28, 28,   1,   6, LAYER_CONV},
+        {1, 1, 1, 24, 24,   6,   6, LAYER_RELU},
+        {2, 2, 2, 24, 24,   6,   6, LAYER_MAXPOOL},
+        {1, 5, 5, 12, 12,   6,  16, LAYER_CONV},
+        {1, 1, 1,  8,  8,  16,  16, LAYER_RELU},
+        {2, 2, 2,  8,  8,  16,  16, LAYER_MAXPOOL},
+        {1, 1, 1,  1,  1, 256, 120, LAYER_FC},
+        {1, 1, 1,  1,  1, 120, 120, LAYER_RELU},
+        {1, 1, 1,  1,  1, 120,  84, LAYER_FC},
+        {1, 1, 1,  1,  1,  84,  84, LAYER_RELU},
+        {1, 1, 1,  1,  1,  84,  10, LAYER_FC},
+    };
+    config cfg = { (int)(sizeof(layers) / sizeof(layers[0])), layers };
 
     try {
-        std::vector<LayerWeights> weights = load_weights(weights_path, cfg);
+        std::vector<LayerWeights> weights = load_weights(model_path, cfg);
+        std::vector<float> image = read_floats(image_path, lc_in_size(layers[0]));
 
-        const layer_config& lc = cfg.layer_configs[0];
-        std::printf("layer 0 filter (%dx%d):\n", lc.filter_h, lc.filter_w);
-        for (int y = 0; y < lc.filter_h; ++y) {
-            for (int x = 0; x < lc.filter_w; ++x)
-                std::printf("%8.3f", weights[0].filter[y * lc.filter_w + x]);
-            std::printf("\n");
+        std::vector<float> logits = forward(cfg, weights, image.data());
+
+        int best = 0;
+        std::printf("logits:");
+        for (size_t i = 0; i < logits.size(); ++i) {
+            std::printf(" %.4f", logits[i]);
+            if (logits[i] > logits[best]) best = (int)i;
         }
+        std::printf("\npredicted class: %d\n", best);
 
-        std::vector<float> img(lc.img_w * lc.img_h);
-        for (size_t i = 0; i < img.size(); ++i) img[i] = (float)i;
-
-        const int out_h = (lc.img_h - lc.filter_h) / lc.stride + 1;
-        const int out_w = (lc.img_w - lc.filter_w) / lc.stride + 1;
-        std::vector<float> out(out_h * out_w);
-        conv2d(img.data(), weights[0].filter.data(), out.data(), lc);
-
-        std::printf("output (%dx%d):\n", out_h, out_w);
-        for (int y = 0; y < out_h; ++y) {
-            for (int x = 0; x < out_w; ++x)
-                std::printf("%8.3f", out[y * out_w + x]);
-            std::printf("\n");
+        if (!expected_path.empty()) {
+            std::vector<float> expected = read_floats(expected_path, logits.size());
+            float max_diff = 0.0f;
+            for (size_t i = 0; i < logits.size(); ++i)
+                max_diff = std::fmax(max_diff, std::fabs(logits[i] - expected[i]));
+            std::printf("max |engine - expected| = %.3e  ->  %s\n", max_diff,
+                        max_diff < 1e-3f ? "MATCH" : "MISMATCH");
+            return max_diff < 1e-3f ? 0 : 2;
         }
     } catch (const std::exception& e) {
         std::fprintf(stderr, "error: %s\n", e.what());

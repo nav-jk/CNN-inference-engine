@@ -4,7 +4,12 @@
 #include "config/default.h"
 #include "mem/filter.h"
 
-// Reads a weight file (see tools/export_weights.py for the format) into one
-// LayerWeights per layer, sizes derived from cfg. Throws std::runtime_error
-// if the file is missing, truncated, has extra data, or doesn't match cfg.
+// Weight file format (little-endian):
+//   4 bytes   magic "CNNW"
+//   uint32    number of layers that HAVE weights (conv + fc), in config order
+//   per such layer: float32 weights (lc_weight_count), then float32 bias (out_c)
+//
+// Returns one LayerWeights per layer in cfg (empty for ReLU/MaxPool).
+// Throws std::runtime_error if the config is inconsistent, or the file is
+// missing, truncated, has extra data, or doesn't match cfg.
 std::vector<LayerWeights> load_weights(const std::string& path, const config& cfg);
